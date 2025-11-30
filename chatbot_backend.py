@@ -1,0 +1,30 @@
+import streamlit as st
+from langgraph.graph import END, START, StateGraph
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langgraph.graph.message import add_messages
+from langchain_ollama import ChatOllama
+from typing import TypedDict, Annotated
+
+# -------- LLM --------
+llm = ChatOllama(model="llama3.2:3b")
+
+# -------- State --------
+class ChatState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+
+# -------- Node --------
+def chat_node(state: ChatState) -> ChatState:
+    messages = state["messages"]
+    response = llm.invoke(messages)
+    return {"messages": [response]}
+
+# -------- Build Graph --------
+checkpointer = MemorySaver()
+
+graph = StateGraph(ChatState)
+graph.add_node("chat_node", chat_node)
+graph.add_edge(START, "chat_node")
+graph.add_edge("chat_node", END)
+
+chatbot = graph.compile(checkpointer=checkpointer)
