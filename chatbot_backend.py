@@ -13,10 +13,24 @@ class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 # Streaming node
+from langchain_core.messages import AIMessageChunk
+
 def chat_node(state: ChatState):
     messages = state["messages"]
+
+    final_chunks = []
+
+    # STREAM chunks
     for chunk in llm.stream(messages):
-        yield {"messages": [chunk]}
+        final_chunks.append(chunk)
+        yield {"messages": [chunk]}  # streaming
+
+    # FINAL OUTPUT: convert all chunks into 1 AIMessage
+    full_output = "".join([c.content for c in final_chunks if hasattr(c, "content")])
+
+    return {"messages": [AIMessage(content=full_output)]}
+
+
 
 # Build graph
 checkpointer = MemorySaver()
