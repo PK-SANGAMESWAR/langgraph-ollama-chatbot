@@ -6,23 +6,22 @@ from langgraph.graph.message import add_messages
 from langchain_ollama import ChatOllama
 from typing import TypedDict, Annotated
 
-# -------- LLM --------
+# LLM
 llm = ChatOllama(model="llama3.2:3b")
 
-# -------- State --------
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
 
-# -------- Node --------
-def chat_node(state: ChatState) -> ChatState:
+# Streaming node
+def chat_node(state: ChatState):
     messages = state["messages"]
-    response = llm.invoke(messages)
-    return {"messages": [response]}
+    for chunk in llm.stream(messages):
+        yield {"messages": [chunk]}
 
-# -------- Build Graph --------
+# Build graph
 checkpointer = MemorySaver()
-
 graph = StateGraph(ChatState)
+
 graph.add_node("chat_node", chat_node)
 graph.add_edge(START, "chat_node")
 graph.add_edge("chat_node", END)
