@@ -7,6 +7,9 @@ import uuid
 from dotenv import load_dotenv
 import os
 
+import asyncio
+from backend import build_graph
+
 load_dotenv()
 
 # Optional: Only set these if you want LangSmith tracing
