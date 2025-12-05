@@ -1,3 +1,4 @@
+# ========== Standard Library ==========
 import os
 import sqlite3
 import asyncio
@@ -16,7 +17,7 @@ import requests   # For stock price tool
 
 # ========== LangChain / LangGraph ==========
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.tools import tool, BaseTool
 from langchain_core.runnables import RunnableConfig
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -67,8 +68,7 @@ def submit_async_task(coro):
 # ---------------------------------------
 # LLM + EMBEDDINGS
 # ---------------------------------------
-# Using a temperature of 0 helps reduce random tool hallucination
-llm = ChatOllama(model="llama3.2:3b", temperature=0)
+llm = ChatOllama(model="llama3.2:3b")
 embeddings = OllamaEmbeddings(model="mxbai-embed-large:latest")
 
 
@@ -134,9 +134,7 @@ search_tool = DuckDuckGoSearchRun(region="us-en")
 @tool
 def get_stock_price(symbol: str) -> dict:
     """Fetch latest stock price using Alpha Vantage."""
-    # Note: Replace with your actual key or use env var
-    api_key = os.getenv("ALPHAVANTAGE_API_KEY", "C9PE94QUEW9VWGFM")
-    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}"
+    url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey=C9PE94QUEW9VWGFM"
     r = requests.get(url)
     return r.json()
 
@@ -144,7 +142,6 @@ def get_stock_price(symbol: str) -> dict:
 # ---------------------------------------
 # MCP TOOLING
 # ---------------------------------------
-# Note: Ensure paths are correct for your environment
 client = MultiServerMCPClient(
     {
         "arith": {
@@ -201,7 +198,7 @@ async def chat_node(state: ChatState, config: RunnableConfig = None):
         query = messages[-1].content
         try:
             # Retrieve relevant chunks
-            docs = retriever.invoke(query)
+            docs = retriever.get_relevant_documents(query)
             if docs:
                 context = "\n\n".join([doc.page_content for doc in docs])
                 augmented_query = f"""Context from uploaded PDF:
@@ -209,29 +206,14 @@ async def chat_node(state: ChatState, config: RunnableConfig = None):
 
 User question: {query}
 
-Instructions: Use the context above to answer the user's question. Do not use external tools if the answer is in the context."""
-                # Replace the last message with augmented version for this turn
+Please answer based on the provided context if relevant."""
+                # Replace the last message with augmented version
                 messages = messages[:-1] + [HumanMessage(content=augmented_query)]
         except Exception as e:
+            # If retrieval fails, continue without augmentation
             print(f"Retrieval error: {e}")
     
-    # --- CRITICAL UPDATE: SYSTEM PROMPT TO PREVENT UNNECESSARY TOOL USE ---
-    system_prompt_content = (
-        "You are a helpful assistant. "
-        "Your goal is to answer the user's question efficiently. "
-        "STRICT RULES FOR TOOL USAGE:\n"
-        "1. Do NOT use tools for greetings (e.g., 'Hi', 'Hello').\n"
-        "2. Do NOT use tools for general knowledge questions that you know the answer to.\n"
-        "3. Do NOT use tools if the answer is found in the 'Context from uploaded PDF' provided in the prompt.\n"
-        "4. ONLY use tools (like search, stock price, arithmetic) if the user explicitly asks for real-time data or a specific calculation you cannot do."
-    )
-    
-    # Prepend the system message to the messages list sent to the LLM
-    # We do not add this to 'state' to avoid cluttering the chat history UI, 
-    # we just use it for this specific inference.
-    messages_for_inference = [SystemMessage(content=system_prompt_content)] + messages
-    
-    response = await llm_with_tools.ainvoke(messages_for_inference)
+    response = await llm_with_tools.ainvoke(messages)
     return {"messages": [response]}
 
 

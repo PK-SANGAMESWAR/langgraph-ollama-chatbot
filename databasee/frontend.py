@@ -1,7 +1,8 @@
 import queue
 import uuid
+import base64
 import streamlit as st
-from backendd import chatbot, retrieve_all_threads, submit_async_task
+from backendd import chatbot, retrieve_all_threads, submit_async_task, ingest_pdf
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 # =========================== Utilities ===========================
@@ -34,6 +35,62 @@ def summarize_history(messages):
     return f"{first}...   ({count} msgs)"
 
 
+def process_uploaded_file(file):
+    """Process uploaded file and return appropriate content format."""
+    file_type = file.type
+    file_name = file.name
+    
+    # Read file bytes
+    file_bytes = file.read()
+    
+    # Handle different file types
+    if file_type.startswith("image/"):
+        # For images, return base64 encoded data
+        base64_data = base64.b64encode(file_bytes).decode("utf-8")
+        return {
+            "type": "image",
+            "name": file_name,
+            "data": base64_data,
+            "media_type": file_type
+        }
+    elif file_type == "application/pdf":
+        # For PDFs, return base64 encoded data
+        base64_data = base64.b64encode(file_bytes).decode("utf-8")
+        return {
+            "type": "pdf",
+            "name": file_name,
+            "data": base64_data,
+            "media_type": file_type
+        }
+    elif file_type.startswith("text/") or file_name.endswith((".txt", ".md", ".csv", ".json")):
+        # For text files, decode as UTF-8
+        try:
+            text_content = file_bytes.decode("utf-8")
+            return {
+                "type": "text",
+                "name": file_name,
+                "content": text_content
+            }
+        except UnicodeDecodeError:
+            # If decode fails, treat as binary
+            base64_data = base64.b64encode(file_bytes).decode("utf-8")
+            return {
+                "type": "binary",
+                "name": file_name,
+                "data": base64_data,
+                "media_type": file_type
+            }
+    else:
+        # For other file types, return base64 encoded data
+        base64_data = base64.b64encode(file_bytes).decode("utf-8")
+        return {
+            "type": "binary",
+            "name": file_name,
+            "data": base64_data,
+            "media_type": file_type
+        }
+
+
 # ======================= Session Initialization ===================
 if "message_history" not in st.session_state:
     st.session_state["message_history"] = []
@@ -44,14 +101,28 @@ if "thread_id" not in st.session_state:
 if "chat_threads" not in st.session_state:
     st.session_state["chat_threads"] = retrieve_all_threads()
 
+if "uploaded_files" not in st.session_state:
+    st.session_state["uploaded_files"] = []
+
 add_thread(st.session_state["thread_id"])
 
 # ============================ Sidebar ============================
 st.sidebar.title("💬 LangGraph MCP Chatbot")
 
-# -------- PDF Upload ----------
-# TODO: Implement PDF ingestion in backend
-# uploaded_pdf = st.sidebar.file_uploader("📄 Upload PDF for Q&A", type=["pdf"])
+# -------- File Upload ----------
+st.sidebar.header("📎 Upload Files")
+uploaded_files = st.sidebar.file_uploader(
+    "Upload files (PDF, images, text, etc.)",
+    type=["pdf", "png", "jpg", "jpeg", "gif", "txt", "csv", "json", "md"],
+    accept_multiple_files=True,
+    key="file_uploader"
+)
+
+if uploaded_files:
+    st.session_state["uploaded_files"] = uploaded_files
+    st.sidebar.success(f"✅ {len(uploaded_files)} file(s) uploaded")
+    for file in uploaded_files:
+        st.sidebar.text(f"📄 {file.name}")
 
 st.sidebar.divider()
 
@@ -87,10 +158,54 @@ for message in st.session_state["message_history"]:
 user_input = st.chat_input("Type here…")
 
 if user_input:
-    # Add user's message
-    st.session_state["message_history"].append({"role": "user", "content": user_input})
+    # Process message content
+    message_content = user_input
+    pdf_ingested = False
+    
+    # If there are uploaded files, process them
+    if st.session_state.get("uploaded_files"):
+        file_info_list = []
+        for uploaded_file in st.session_state["uploaded_files"]:
+            # Reset file pointer before reading
+            uploaded_file.seek(0)
+            file_data = process_uploaded_file(uploaded_file)
+            
+            if file_data["type"] == "text":
+                file_info_list.append(f"\n\n--- File: {file_data['name']} ---\n{file_data['content']}\n--- End of {file_data['name']} ---")
+            elif file_data["type"] == "image":
+                file_info_list.append(f"\n\n[Image uploaded: {file_data['name']}]")
+            elif file_data["type"] == "pdf":
+                # Ingest PDF into RAG system
+                try:
+                    uploaded_file.seek(0)  # Reset pointer again
+                    pdf_bytes = uploaded_file.read()
+                    metadata = ingest_pdf(
+                        pdf_bytes,
+                        thread_id=str(st.session_state["thread_id"]),
+                        filename=file_data["name"]
+                    )
+                    file_info_list.append(f"\n\n[PDF '{file_data['name']}' ingested: {metadata['chunks']} chunks from {metadata['documents']} pages. You can now ask questions about it.]")
+                    pdf_ingested = True
+                except Exception as e:
+                    file_info_list.append(f"\n\n[Error processing PDF '{file_data['name']}': {str(e)}]")
+            else:
+                file_info_list.append(f"\n\n[File uploaded: {file_data['name']}]")
+        
+        # Combine user input with file information
+        if file_info_list:
+            message_content = user_input + "".join(file_info_list)
+    
+    # Display user's message
+    display_content = user_input
+    if st.session_state.get("uploaded_files"):
+        display_content += f"\n\n📎 {len(st.session_state['uploaded_files'])} file(s) attached"
+    
+    st.session_state["message_history"].append({"role": "user", "content": display_content})
     with st.chat_message("user"):
-        st.markdown(user_input)
+        st.markdown(display_content)
+    
+    # Clear uploaded files after sending
+    st.session_state["uploaded_files"] = []
 
     CONFIG = {
         "configurable": {"thread_id": st.session_state["thread_id"]},
@@ -108,7 +223,7 @@ if user_input:
             async def run_stream():
                 try:
                     async for message_chunk, metadata in chatbot.astream(
-                        {"messages": [HumanMessage(content=user_input)]},
+                        {"messages": [HumanMessage(content=message_content)]},
                         config=CONFIG,
                         stream_mode="messages",
                     ):

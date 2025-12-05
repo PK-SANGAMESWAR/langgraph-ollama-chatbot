@@ -11,3 +11,5 @@ aiohttp
 aiofiles
 aiosqlite
 langchain-mcp-adapters
+pypdf
+faiss-cpu
