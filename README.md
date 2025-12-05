@@ -16,7 +16,6 @@ This project offers multiple versions of the chatbot, ranging from a simple conv
   - Stock Prices
   - Wikipedia Search
   - Unit & Currency Conversion
-  - File Reading (PDF/TXT)
   - URL Content Fetching
 - **Streamlit UI**: A clean, responsive, and interactive chat interface.
 
@@ -82,7 +81,7 @@ streamlit run frontend.py
 - `chatbot.py`: Simple standalone chatbot application.
 - `chatbot_backend.py` / `chatbot_frontend.py`: Modularized basic chatbot.
 - `databasee/`: Directory for the advanced chatbot.
-  - `backend.py`: Logic for tools, LangGraph nodes, and SQLite persistence.
+  - `backendd.py`: Logic for tools, LangGraph nodes, and SQLite persistence.
   - `frontend.py`: Streamlit UI for the advanced chatbot.
   - `chatbot.db`: SQLite database for storing chat history.
 - `requirements.txt`: Project dependencies.
