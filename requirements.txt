@@ -2,3 +2,9 @@ streamlit
 langgraph
 langchain-core
 langchain-ollama
+langchain-community
+requests
+python-dotenv
+PyPDF2
+beautifulsoup4
+duckduckgo-search
